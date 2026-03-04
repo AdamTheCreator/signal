@@ -2,7 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { QuizQuestion, TopicMastery } from '@/types';
+import type { QuizQuestion } from '@/types';
+
+interface WeakTopic {
+  topic_tag: string;
+  correct_count: number;
+  incorrect_count: number;
+}
 
 const PILLAR_COLORS: Record<string, string> = {
   intel: '#00e5ff',
@@ -24,7 +30,7 @@ export default function QuizBank() {
   const [sessionTotal, setSessionTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [weakTopics, setWeakTopics] = useState<TopicMastery[]>([]);
+  const [weakTopics, setWeakTopics] = useState<WeakTopic[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,14 +41,23 @@ export default function QuizBank() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/quiz/attempt');
-      const data = await res.json();
+      const [quizRes, topicsRes] = await Promise.all([
+        fetch('/api/quiz/attempt'),
+        fetch('/api/topics/suggest').catch(() => null),
+      ]);
+      const data = await quizRes.json();
       if (data.questions && data.questions.length > 0) {
         setQuestions(data.questions);
         setCurrentIndex(0);
         resetQuestionState();
       } else {
         setQuestions([]);
+      }
+      if (topicsRes?.ok) {
+        const topicsData = await topicsRes.json();
+        if (topicsData.weakTopics) {
+          setWeakTopics(topicsData.weakTopics);
+        }
       }
     } catch {
       setError('Failed to load quiz questions');
@@ -358,7 +373,7 @@ export default function QuizBank() {
           <div className="flex flex-wrap gap-2">
             {weakTopics.map((topic) => (
               <span
-                key={topic.id}
+                key={topic.topic_tag}
                 className="px-3 py-1.5 rounded-lg text-xs font-mono
                   bg-red-500/10 border border-red-500/20 text-red-400"
               >
