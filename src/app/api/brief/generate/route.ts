@@ -14,6 +14,9 @@ async function generatePillar<T>(system: string, user: string, maxTokens: number
   });
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  if (response.stop_reason === 'max_tokens') {
+    console.warn('Response truncated (max_tokens), text length:', text.length);
+  }
   return extractJSON<T>(text);
 }
 
@@ -23,10 +26,10 @@ export async function POST() {
 
     // Generate all 4 pillars in parallel
     const [intel, deepContext, concept, interviewEdge] = await Promise.all([
-      generatePillar<IntelItem[]>(INTEL_PROMPT.system, INTEL_PROMPT.user, 1500),
-      generatePillar<DeepContext>(DEEP_CONTEXT_PROMPT.system, DEEP_CONTEXT_PROMPT.user, 1500),
-      generatePillar<ConceptOfDay>(CONCEPT_PROMPT.system, CONCEPT_PROMPT.user, 1500),
-      generatePillar<InterviewEdge>(INTERVIEW_EDGE_PROMPT.system, INTERVIEW_EDGE_PROMPT.user, 1500),
+      generatePillar<IntelItem[]>(INTEL_PROMPT.system, INTEL_PROMPT.user, 3000),
+      generatePillar<DeepContext>(DEEP_CONTEXT_PROMPT.system, DEEP_CONTEXT_PROMPT.user, 3000),
+      generatePillar<ConceptOfDay>(CONCEPT_PROMPT.system, CONCEPT_PROMPT.user, 3000),
+      generatePillar<InterviewEdge>(INTERVIEW_EDGE_PROMPT.system, INTERVIEW_EDGE_PROMPT.user, 3000),
     ]);
 
     // Save to Supabase
