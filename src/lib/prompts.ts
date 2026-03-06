@@ -5,32 +5,66 @@ Learning style: Systems thinker who prefers analogy-driven explanations, enterpr
 Today's date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 CRITICAL: Respond ONLY with valid JSON matching the exact schema specified. No markdown, no backticks, no explanation.`;
 
-export const INTEL_PROMPT = {
-  system: SHARED_CONTEXT,
-  user: `Give Adam 3 high-signal developments in: OpenAI products (Codex, API, Agents SDK, MCP), developer platforms, enterprise AI adoption.
+export interface PreviousBriefSummary {
+  intelHeadlines: string[];
+  deepContextTopics: string[];
+  concepts: string[];
+  interviewFocusAreas: string[];
+  interviewQuestions: string[];
+}
+
+function formatExclusion(label: string, items: string[]): string {
+  if (items.length === 0) return '';
+  return `\n\nIMPORTANT — You have already covered these ${label} in recent briefs. Do NOT repeat or closely rephrase any of them:\n- ${items.join('\n- ')}`;
+}
+
+function collectField(briefs: PreviousBriefSummary[], key: keyof PreviousBriefSummary): string[] {
+  return Array.from(new Set(briefs.flatMap(b => b[key])));
+}
+
+export function getIntelPrompt(previousBriefs: PreviousBriefSummary[]): { system: string; user: string } {
+  const exclusion = formatExclusion('headlines', collectField(previousBriefs, 'intelHeadlines'));
+  return {
+    system: SHARED_CONTEXT,
+    user: `Give Adam 3 high-signal developments in: OpenAI products (Codex, API, Agents SDK, MCP), developer platforms, enterprise AI adoption.
 Return JSON array: [{"headline": string, "summary": string, "whyItMatters": string}]
-Each item should have a punchy headline, 2-3 sentence summary with specifics, and a "why it matters" that explicitly connects to Adam's GitHub/enterprise SE background.`,
-};
+Each item should have a punchy headline, 2-3 sentence summary with specifics, and a "why it matters" that explicitly connects to Adam's GitHub/enterprise SE background.${exclusion}`,
+  };
+}
 
-export const DEEP_CONTEXT_PROMPT = {
-  system: SHARED_CONTEXT,
-  user: `Pick the most strategically important topic for an OpenAI SE candidate right now. Write a deep context piece covering origin, evolution, inflections, trajectory, and customer narrative.
+export function getDeepContextPrompt(previousBriefs: PreviousBriefSummary[]): { system: string; user: string } {
+  const exclusion = formatExclusion('topics', collectField(previousBriefs, 'deepContextTopics'));
+  return {
+    system: SHARED_CONTEXT,
+    user: `Pick the most strategically important topic for an OpenAI SE candidate right now. Write a deep context piece covering origin, evolution, inflections, trajectory, and customer narrative.
 Return JSON: {"topic": string, "origin": string, "evolution": string, "inflections": string, "trajectory": string, "customerNarrative": string}
-The customer narrative should frame how an SE would explain this to a skeptical enterprise customer.`,
-};
+The customer narrative should frame how an SE would explain this to a skeptical enterprise customer.${exclusion}`,
+  };
+}
 
-export const CONCEPT_PROMPT = {
-  system: SHARED_CONTEXT,
-  user: `Choose one foundational AI concept essential for an OpenAI SE role. Rotate through: RAG, embeddings, fine-tuning vs prompting, context windows, function calling, agents/tool use, MCP, grounding, evals, RLHF, inference optimization, vector databases, structured outputs, temperature/sampling, reasoning models.
+export function getConceptPrompt(previousBriefs: PreviousBriefSummary[]): { system: string; user: string } {
+  const exclusion = formatExclusion('concepts', collectField(previousBriefs, 'concepts'));
+  return {
+    system: SHARED_CONTEXT,
+    user: `Choose one foundational AI concept essential for an OpenAI SE role. Rotate through: RAG, embeddings, fine-tuning vs prompting, context windows, function calling, agents/tool use, MCP, grounding, evals, RLHF, inference optimization, vector databases, structured outputs, temperature/sampling, reasoning models.
 Return JSON: {"concept": string, "plainEnglish": string, "technical": string, "enterpriseUseCase": string, "misconceptions": string, "interviewAnswer": string}
-Plain English should be one sentence an exec would understand. Technical should be 3-4 sentences on how it actually works. Interview answer should be a framework for responding if asked about this concept.`,
-};
+Plain English should be one sentence an exec would understand. Technical should be 3-4 sentences on how it actually works. Interview answer should be a framework for responding if asked about this concept.${exclusion}`,
+  };
+}
 
-export const INTERVIEW_EDGE_PROMPT = {
-  system: SHARED_CONTEXT,
-  user: `Coach Adam on his OpenAI SE interview. Give him the one thing to focus on this week, a likely question with answer framework using his GitHub/enterprise background, a technical concept to brush up on, and a show-don't-tell suggestion.
-Return JSON: {"focusThisWeek": string, "likelyQuestion": string, "answerFramework": string, "technicalBrushUp": string, "showDontTell": string}`,
-};
+export function getInterviewEdgePrompt(previousBriefs: PreviousBriefSummary[]): { system: string; user: string } {
+  const focusAreas = collectField(previousBriefs, 'interviewFocusAreas');
+  const questions = collectField(previousBriefs, 'interviewQuestions');
+  const parts: string[] = [];
+  if (focusAreas.length > 0) parts.push(formatExclusion('focus areas', focusAreas));
+  if (questions.length > 0) parts.push(formatExclusion('likely questions', questions));
+  const exclusion = parts.join('');
+  return {
+    system: SHARED_CONTEXT,
+    user: `Coach Adam on his OpenAI SE interview. Give him the one thing to focus on this week, a likely question with answer framework using his GitHub/enterprise background, a technical concept to brush up on, and a show-don't-tell suggestion.
+Return JSON: {"focusThisWeek": string, "likelyQuestion": string, "answerFramework": string, "technicalBrushUp": string, "showDontTell": string}${exclusion}`,
+  };
+}
 
 export function getQuizGenerationPrompt(briefContent: string): { system: string; user: string } {
   return {
