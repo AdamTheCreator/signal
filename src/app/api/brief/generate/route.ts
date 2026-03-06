@@ -5,6 +5,8 @@ import { getIntelPrompt, getDeepContextPrompt, getConceptPrompt, getInterviewEdg
 import type { PreviousBriefSummary } from '@/lib/prompts';
 import type { IntelItem, DeepContext, ConceptOfDay, InterviewEdge, Brief } from '@/types';
 
+export const maxDuration = 60;
+
 async function generatePillar<T>(system: string, user: string, maxTokens: number): Promise<T> {
   const anthropic = getAnthropicClient();
   const response = await anthropic.messages.create({
