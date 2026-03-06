@@ -175,7 +175,7 @@ export default function QuizBank() {
   const emptyMessages: Record<QuizMode, { title: string; body: string }> = {
     standard: {
       title: 'No quiz questions yet',
-      body: 'Generate a Daily Brief first — quiz questions are automatically created from each brief\u2019s content. Head to the Daily Brief tab to get started.',
+      body: 'Questions will be generated automatically when you start a session. Check back in a moment.',
     },
     bookmarked: {
       title: 'No bookmarked questions',

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAnthropicClient, MODEL, extractJSON } from '@/lib/anthropic';
 import { getSupabaseClient } from '@/lib/supabase';
-import { getAnswerEvaluationPrompt, getQuizGenerationPrompt, getStandaloneQuizPrompt } from '@/lib/prompts';
+import { getAnswerEvaluationPrompt, getStandaloneQuizPrompt } from '@/lib/prompts';
 
 export async function POST(request: NextRequest) {
   try {
@@ -138,72 +138,19 @@ interface GeneratedQuestion {
 async function autoGenerateQuestions(supabase: ReturnType<typeof getSupabaseClient>) {
   const anthropic = getAnthropicClient();
 
-  // First, try briefs that don't have quiz questions yet
-  const { data: allBriefs } = await supabase
-    .from('briefs')
-    .select('id, intel, deep_context, concept, interview_edge')
-    .order('created_at', { ascending: false })
-    .limit(5);
-
-  if (allBriefs && allBriefs.length > 0) {
-    for (const brief of allBriefs) {
-      const { count } = await supabase
-        .from('quiz_questions')
-        .select('*', { count: 'exact', head: true })
-        .eq('brief_id', brief.id);
-
-      if (count === 0) {
-        const briefContent = JSON.stringify({
-          intel: brief.intel,
-          deep_context: brief.deep_context,
-          concept: brief.concept,
-          interview_edge: brief.interview_edge,
-        });
-
-        const prompt = getQuizGenerationPrompt(briefContent);
-        const response = await anthropic.messages.create({
-          model: MODEL,
-          max_tokens: 2000,
-          system: prompt.system,
-          messages: [{ role: 'user', content: prompt.user }],
-        });
-
-        const text = response.content[0].type === 'text' ? response.content[0].text : '';
-        const questions = extractJSON<GeneratedQuestion[]>(text);
-
-        const toInsert = questions.map((q) => ({
-          brief_id: brief.id,
-          pillar: q.pillar,
-          question: q.question,
-          answer: q.answer,
-          question_type: q.question_type,
-          topic_tag: q.topic_tag,
-          options: q.options,
-          category: q.category || 'tech',
-        }));
-
-        const { data: saved } = await supabase
-          .from('quiz_questions')
-          .insert(toInsert)
-          .select();
-
-        if (saved && saved.length > 0) return saved;
-      }
-    }
-  }
-
-  // Fallback: standalone generation targeting weak topics
-  const { data: mastery } = await supabase
-    .from('topic_mastery')
-    .select('topic_tag, correct_count, incorrect_count')
-    .order('mastery_level', { ascending: true })
-    .limit(10);
-
-  const { data: existing } = await supabase
-    .from('quiz_questions')
-    .select('question')
-    .order('id', { ascending: false })
-    .limit(30);
+  // Gather context: weak topics + existing questions for dedup
+  const [{ data: mastery }, { data: existing }] = await Promise.all([
+    supabase
+      .from('topic_mastery')
+      .select('topic_tag, correct_count, incorrect_count')
+      .order('mastery_level', { ascending: true })
+      .limit(10),
+    supabase
+      .from('quiz_questions')
+      .select('question')
+      .order('id', { ascending: false })
+      .limit(30),
+  ]);
 
   const weakTopics = (mastery || []).map((m) => ({
     topic_tag: m.topic_tag,
