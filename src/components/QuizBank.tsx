@@ -53,6 +53,7 @@ export default function QuizBank() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<QuizMode>('standard');
   const [category, setCategory] = useState<QuizCategory>('all');
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     fetchQuestions();
@@ -75,9 +76,16 @@ export default function QuizBank() {
       if (data.questions && data.questions.length > 0) {
         setQuestions(data.questions);
         setCurrentIndex(0);
+        setGenerating(false);
         resetQuestionState();
+      } else if (data.generating) {
+        setQuestions([]);
+        setGenerating(true);
+        // Retry after a few seconds — questions are being generated in the background
+        setTimeout(() => fetchQuestions(), 5000);
       } else {
         setQuestions([]);
+        setGenerating(false);
       }
       if (topicsRes?.ok) {
         const topicsData = await topicsRes.json();
@@ -253,8 +261,19 @@ export default function QuizBank() {
         </div>
       )}
 
+      {/* Generating state */}
+      {!loading && generating && questions.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="spinner mb-4" style={{ width: 32, height: 32 }} />
+          <h3 className="text-lg font-medium text-white/50 mb-2">Generating new questions...</h3>
+          <p className="text-sm text-white/30 max-w-md">
+            Your question pool is empty. New questions are being generated — this will take a few seconds.
+          </p>
+        </div>
+      )}
+
       {/* Empty state */}
-      {!loading && questions.length === 0 && (
+      {!loading && !generating && questions.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="text-4xl mb-4 opacity-20">◎</div>
           <h3 className="text-lg font-medium text-white/50 mb-2">

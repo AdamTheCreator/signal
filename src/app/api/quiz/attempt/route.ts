@@ -314,20 +314,12 @@ export async function GET(request: NextRequest) {
         if (moreQuestions) questions = [...questions, ...moreQuestions];
       }
 
-      // Auto-generate when pool is empty
+      // Auto-generate when pool is empty — fire and forget so response isn't blocked
       if (questions.length === 0) {
-        try {
-          const generated = await autoGenerateQuestions(supabase);
-          if (generated && generated.length > 0) {
-            if (filterCategory) {
-              questions = generated.filter((q) => q.category === category);
-            } else {
-              questions = generated;
-            }
-          }
-        } catch (genError) {
-          console.error('Auto-generation failed:', genError);
-        }
+        autoGenerateQuestions(supabase).catch((err) =>
+          console.error('Auto-generation failed:', err)
+        );
+        return NextResponse.json({ questions: [], generating: true });
       }
     }
 
