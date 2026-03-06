@@ -22,7 +22,7 @@ export default function Home() {
                 <span className="text-white text-sm font-bold">S</span>
               </div>
               <div>
-                <h1 className="text-white font-semibold text-lg tracking-tight">SIGNAL</h1>
+                <h1 className="text-white font-semibold text-lg tracking-tight">SIGNAL <span className="text-[10px] text-emerald-400 font-mono align-top">v1.1</span></h1>
                 <p className="text-white/30 text-xs font-mono">AI Learning Platform</p>
               </div>
             </div>
