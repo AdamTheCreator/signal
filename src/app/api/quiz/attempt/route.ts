@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAnthropicClient, MODEL, extractJSON } from '@/lib/anthropic';
 import { getSupabaseClient } from '@/lib/supabase';
-import { getAnswerEvaluationPrompt } from '@/lib/prompts';
+import { getAnswerEvaluationPrompt, getQuizGenerationPrompt, getStandaloneQuizPrompt } from '@/lib/prompts';
 
 export async function POST(request: NextRequest) {
   try {
@@ -125,47 +125,210 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
-  try {
-    const supabase = getSupabaseClient();
+interface GeneratedQuestion {
+  pillar: string;
+  question: string;
+  answer: string;
+  question_type: 'multiple_choice' | 'free_response' | 'customer_explain';
+  topic_tag: string;
+  options: string[] | null;
+  category?: 'tech' | 'industry' | 'customer';
+}
 
-    // Spaced repetition: prioritize topics where incorrect > correct and last_seen is oldest
-    const { data: mastery } = await supabase
-      .from('topic_mastery')
-      .select('*')
-      .order('mastery_level', { ascending: true })
-      .order('last_seen_at', { ascending: true, nullsFirst: true });
+async function autoGenerateQuestions(supabase: ReturnType<typeof getSupabaseClient>) {
+  const anthropic = getAnthropicClient();
 
-    // Get questions for weak topics first
-    let questions: Record<string, unknown>[] = [];
+  // First, try briefs that don't have quiz questions yet
+  const { data: allBriefs } = await supabase
+    .from('briefs')
+    .select('id, intel, deep_context, concept, interview_edge')
+    .order('created_at', { ascending: false })
+    .limit(5);
 
-    if (mastery && mastery.length > 0) {
-      // Weak topics: incorrect > correct or mastery_level < 2
-      const weakTopics = mastery
-        .filter((m) => m.incorrect_count > m.correct_count || m.mastery_level < 2)
-        .map((m) => m.topic_tag);
+  if (allBriefs && allBriefs.length > 0) {
+    for (const brief of allBriefs) {
+      const { count } = await supabase
+        .from('quiz_questions')
+        .select('*', { count: 'exact', head: true })
+        .eq('brief_id', brief.id);
 
-      if (weakTopics.length > 0) {
-        const { data: weakQuestions } = await supabase
+      if (count === 0) {
+        const briefContent = JSON.stringify({
+          intel: brief.intel,
+          deep_context: brief.deep_context,
+          concept: brief.concept,
+          interview_edge: brief.interview_edge,
+        });
+
+        const prompt = getQuizGenerationPrompt(briefContent);
+        const response = await anthropic.messages.create({
+          model: MODEL,
+          max_tokens: 2000,
+          system: prompt.system,
+          messages: [{ role: 'user', content: prompt.user }],
+        });
+
+        const text = response.content[0].type === 'text' ? response.content[0].text : '';
+        const questions = extractJSON<GeneratedQuestion[]>(text);
+
+        const toInsert = questions.map((q) => ({
+          brief_id: brief.id,
+          pillar: q.pillar,
+          question: q.question,
+          answer: q.answer,
+          question_type: q.question_type,
+          topic_tag: q.topic_tag,
+          options: q.options,
+          category: q.category || 'tech',
+        }));
+
+        const { data: saved } = await supabase
           .from('quiz_questions')
-          .select('*')
-          .in('topic_tag', weakTopics)
-          .limit(10);
+          .insert(toInsert)
+          .select();
 
-        if (weakQuestions) questions = weakQuestions;
+        if (saved && saved.length > 0) return saved;
       }
     }
+  }
 
-    // If we don't have enough questions from weak topics, add general ones
-    if (questions.length < 10) {
-      const existingIds = questions.map((q) => q.id as string);
-      const { data: moreQuestions } = await supabase
+  // Fallback: standalone generation targeting weak topics
+  const { data: mastery } = await supabase
+    .from('topic_mastery')
+    .select('topic_tag, correct_count, incorrect_count')
+    .order('mastery_level', { ascending: true })
+    .limit(10);
+
+  const { data: existing } = await supabase
+    .from('quiz_questions')
+    .select('question')
+    .order('id', { ascending: false })
+    .limit(30);
+
+  const weakTopics = (mastery || []).map((m) => ({
+    topic_tag: m.topic_tag,
+    correct_count: m.correct_count,
+    incorrect_count: m.incorrect_count,
+  }));
+  const existingQuestions = (existing || []).map((q) => q.question as string);
+
+  const prompt = getStandaloneQuizPrompt(weakTopics, existingQuestions);
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 2000,
+    system: prompt.system,
+    messages: [{ role: 'user', content: prompt.user }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  const questions = extractJSON<GeneratedQuestion[]>(text);
+
+  const toInsert = questions.map((q) => ({
+    brief_id: null,
+    pillar: q.pillar,
+    question: q.question,
+    answer: q.answer,
+    question_type: q.question_type,
+    topic_tag: q.topic_tag,
+    options: q.options,
+    category: q.category || 'tech',
+  }));
+
+  const { data: saved } = await supabase
+    .from('quiz_questions')
+    .insert(toInsert)
+    .select();
+
+  return saved || [];
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = getSupabaseClient();
+    const { searchParams } = new URL(request.url);
+    const mode = searchParams.get('mode') || 'standard';
+    const category = searchParams.get('category') || 'all';
+    const filterCategory = category && category !== 'all';
+
+    let questions: Record<string, unknown>[] = [];
+
+    if (mode === 'bookmarked') {
+      let query = supabase
         .from('quiz_questions')
         .select('*')
-        .not('id', 'in', `(${existingIds.length > 0 ? existingIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
-        .limit(10 - questions.length);
+        .eq('is_bookmarked', true);
+      if (filterCategory) query = query.eq('category', category);
+      const { data } = await query.limit(20);
+      questions = data || [];
 
-      if (moreQuestions) questions = [...questions, ...moreQuestions];
+    } else if (mode === 'missed') {
+      // Get question IDs with at least one incorrect attempt
+      const { data: incorrectAttempts } = await supabase
+        .from('quiz_attempts')
+        .select('question_id')
+        .eq('is_correct', false);
+
+      if (incorrectAttempts && incorrectAttempts.length > 0) {
+        const missedIds = Array.from(new Set(incorrectAttempts.map((a) => a.question_id)));
+        let query = supabase
+          .from('quiz_questions')
+          .select('*')
+          .in('id', missedIds);
+        if (filterCategory) query = query.eq('category', category);
+        const { data } = await query.limit(20);
+        questions = data || [];
+      }
+
+    } else {
+      // Standard mode: spaced repetition + category filter
+      const { data: mastery } = await supabase
+        .from('topic_mastery')
+        .select('*')
+        .order('mastery_level', { ascending: true })
+        .order('last_seen_at', { ascending: true, nullsFirst: true });
+
+      if (mastery && mastery.length > 0) {
+        const weakTopics = mastery
+          .filter((m) => m.incorrect_count > m.correct_count || m.mastery_level < 2)
+          .map((m) => m.topic_tag);
+
+        if (weakTopics.length > 0) {
+          let query = supabase
+            .from('quiz_questions')
+            .select('*')
+            .in('topic_tag', weakTopics);
+          if (filterCategory) query = query.eq('category', category);
+          const { data: weakQuestions } = await query.limit(10);
+          if (weakQuestions) questions = weakQuestions;
+        }
+      }
+
+      if (questions.length < 10) {
+        const existingIds = questions.map((q) => q.id as string);
+        let query = supabase
+          .from('quiz_questions')
+          .select('*')
+          .not('id', 'in', `(${existingIds.length > 0 ? existingIds.join(',') : '00000000-0000-0000-0000-000000000000'})`);
+        if (filterCategory) query = query.eq('category', category);
+        const { data: moreQuestions } = await query.limit(10 - questions.length);
+        if (moreQuestions) questions = [...questions, ...moreQuestions];
+      }
+
+      // Auto-generate when pool is empty
+      if (questions.length === 0) {
+        try {
+          const generated = await autoGenerateQuestions(supabase);
+          if (generated && generated.length > 0) {
+            if (filterCategory) {
+              questions = generated.filter((q) => q.category === category);
+            } else {
+              questions = generated;
+            }
+          }
+        } catch (genError) {
+          console.error('Auto-generation failed:', genError);
+        }
+      }
     }
 
     // Shuffle questions

@@ -44,6 +44,9 @@ export interface InterviewEdge {
   showDontTell: string;
 }
 
+export type QuizMode = 'standard' | 'bookmarked' | 'missed';
+export type QuizCategory = 'all' | 'tech' | 'industry' | 'customer';
+
 export interface QuizQuestion {
   id: string;
   brief_id: string;
@@ -53,6 +56,8 @@ export interface QuizQuestion {
   question_type: 'multiple_choice' | 'free_response' | 'customer_explain';
   topic_tag: string;
   options: string[] | null;
+  category: 'tech' | 'industry' | 'customer';
+  is_bookmarked: boolean;
 }
 
 export interface QuizAttempt {

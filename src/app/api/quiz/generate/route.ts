@@ -10,6 +10,7 @@ interface GeneratedQuestion {
   question_type: 'multiple_choice' | 'free_response' | 'customer_explain';
   topic_tag: string;
   options: string[] | null;
+  category?: 'tech' | 'industry' | 'customer';
 }
 
 export async function POST(request: NextRequest) {
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
       question_type: q.question_type,
       topic_tag: q.topic_tag,
       options: q.options,
+      category: q.category || 'tech',
     }));
 
     const { data: savedQuestions, error: insertError } = await supabase

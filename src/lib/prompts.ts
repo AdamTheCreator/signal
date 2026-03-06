@@ -75,8 +75,35 @@ Generate 12 quiz questions (3 per pillar: intel, deep_context, concept, intervie
 Mix types: multiple_choice (with 4 options, 1 correct), free_response, customer_explain.
 Each question should test understanding and application, not just recall.
 For customer_explain questions, frame them as "A customer asks..." or "Your VP wants to know..." scenarios.
-Return JSON array: [{"pillar": string, "question": string, "answer": string, "question_type": "multiple_choice"|"free_response"|"customer_explain", "topic_tag": string, "options": string[]|null}]
-For multiple_choice, options must be an array of 4 strings. For other types, options should be null. The answer for multiple_choice should be the exact text of the correct option.`,
+Return JSON array: [{"pillar": string, "question": string, "answer": string, "question_type": "multiple_choice"|"free_response"|"customer_explain", "topic_tag": string, "options": string[]|null, "category": "tech"|"industry"|"customer"}]
+For multiple_choice, options must be an array of 4 strings. For other types, options should be null. The answer for multiple_choice should be the exact text of the correct option.
+category: "tech" for technical/engineering questions, "industry" for market/business/trend questions, "customer" for customer-facing/SE scenario questions.`,
+  };
+}
+
+export function getStandaloneQuizPrompt(
+  weakTopics: { topic_tag: string; correct_count: number; incorrect_count: number }[],
+  existingQuestions: string[]
+): { system: string; user: string } {
+  const topicList = weakTopics.map(t => `- ${t.topic_tag}: ${t.correct_count} correct, ${t.incorrect_count} incorrect`).join('\n');
+  const exclusion = existingQuestions.length > 0
+    ? `\n\nDo NOT repeat these existing questions:\n${existingQuestions.slice(-30).map(q => `- ${q}`).join('\n')}`
+    : '';
+
+  return {
+    system: SHARED_CONTEXT,
+    user: `Generate 10 quiz questions targeting Adam's weak areas and general OpenAI SE prep.
+
+Weak topics to focus on:
+${topicList || '(No specific weak topics — cover a broad range of OpenAI SE topics)'}
+
+Mix types: multiple_choice (with 4 options, 1 correct), free_response, customer_explain.
+Each question should test understanding and application, not just recall.
+For customer_explain questions, frame them as "A customer asks..." or "Your VP wants to know..." scenarios.
+Return JSON array: [{"pillar": string, "question": string, "answer": string, "question_type": "multiple_choice"|"free_response"|"customer_explain", "topic_tag": string, "options": string[]|null, "category": "tech"|"industry"|"customer"}]
+For multiple_choice, options must be an array of 4 strings. For other types, options should be null. The answer for multiple_choice should be the exact text of the correct option.
+category: "tech" for technical/engineering questions, "industry" for market/business/trend questions, "customer" for customer-facing/SE scenario questions.
+pillar should be one of: intel, deep_context, concept, interview_edge.${exclusion}`,
   };
 }
 
